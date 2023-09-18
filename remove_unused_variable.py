@@ -143,7 +143,6 @@ def main(opts: argparse.Namespace) -> int:
                 f.write("\n\n")
             remove_unused_variable(source_info['file'], all_unused_variable)
                 
-        return 0
     
 if __name__ == "__main__":
 
