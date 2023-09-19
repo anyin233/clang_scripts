@@ -1,10 +1,13 @@
 import json
 import argparse
+from collections import deque
 
 from dataclasses import dataclass
 
 from clang import cindex
 from clang.cindex import CursorKind
+
+from tqdm import tqdm
 
 from helper import dump_ast_recusively
 
@@ -88,7 +91,7 @@ def update_variable_usage(cursor: cindex.Cursor, variable_decl_dict: {str: Varia
         update_variable_usage(child, variable_decl_dict)
     
 def remove_unused_variable(filename, decls: [VariableDeclInfo]):
-    remove_span = []
+    remove_span = deque()
     for decl in decls:
         cursor = decl.cursor
         remove_span.append(FileRange(start=FileLocation(line=cursor.extent.start.line, column=cursor.extent.start.column),
@@ -96,21 +99,37 @@ def remove_unused_variable(filename, decls: [VariableDeclInfo]):
     
     with open(filename, 'r+') as f:
         lines = f.readlines()
+        new_lines = []
         for index, line in enumerate(lines, start=1):
-            for span in remove_span:
+            append_line = True
+            if len(remove_span) != 0:
+                span = remove_span.popleft()
                 if index == span.start.line:
                     if span.start.line == span.end.line:
                         line = line[:span.start.column - 1] + line[span.end.column:]
                     else:
                         line = line[:span.start.column - 1]
+                    if line.strip() == "":
+                        append_line = False
+                    remove_span.append(span)
                 elif index > span.start.line and index < span.end.line:
+                    # ignore lines
                     line = ""
+                    append_line = False
+                    remove_span.append(span)
                 elif index == span.end.line:
                     line = line[span.end.column:]
-            lines[index-1] = line
+                    if line.strip() == "":
+                        append_line = False
+                    # when reach the end of span, remove it
 
+            if append_line:
+                new_lines.append(line) 
+            
+        # remove empty lines
+        new_lines = [line for line in new_lines if line.strip() != ";"]
         f.seek(0)
-        f.writelines(lines)
+        f.writelines(new_lines)
         f.truncate()
 
 def main(opts: argparse.Namespace) -> int:
@@ -123,9 +142,8 @@ def main(opts: argparse.Namespace) -> int:
     with open(compile_command, 'r') as f:
         complie_command_list = json.load(f)
 
-    for source_info in complie_command_list:
+    for source_info in tqdm(complie_command_list):
         tu = load_source_to_tu(source_info)
-        print(tu)
         with open("test.ast", 'w') as f:
             dump_ast_recusively(tu.cursor, f)
         
